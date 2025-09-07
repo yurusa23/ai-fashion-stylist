@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 패션 스타일리스트</title>
+    <!-- Add Pretendard Font -->
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              // New Palette: "Ethereal Dawn" - artistic, soft, and sophisticated
+              'theme-bg': '#F8F7F4', // Soft, warm parchment background
+              'theme-text': '#3D405B', // Deep, muted slate for primary text
+              'theme-accent': '#6A999C', // Dusty teal for primary actions
+              'theme-accent-hover': '#598285', // Darker, richer teal for hover
+              'theme-gray-light': '#DCD9D4', // Warm gray for borders and dividers
+              'theme-gray-dark': '#8D99AE', // Muted slate for secondary text
+              'theme-surface': 'rgba(242, 238, 232, 0.7)', // Warmer tint for frosted glass effect
+              'theme-error': '#E07A5F', // Muted coral for error messages
+              'theme-error-bg': '#FBEAE5', // Light coral background for error sections
+            },
+            fontFamily: {
+              // Set Pretendard as the default sans-serif font
+              'sans': ['Pretendard', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', '"Noto Sans"', 'sans-serif'],
+            },
+            boxShadow: {
+              'soft': '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)',
+              'medium': '0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -4px rgba(0, 0, 0, 0.07)',
+            },
+            // Enable backdrop blur for the frosted glass effect
+            backdropBlur: {
+              'xl': '24px',
+            },
+            keyframes: {
+              scaleIn: {
+                '0%': { opacity: '0', transform: 'scale(0.95)' },
+                '100%': { opacity: '1', transform: 'scale(1)' },
+              },
+              fadeInUp: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              rotateIn: {
+                '0%': { opacity: '0', transform: 'scale(0.95) rotate(-3deg)' },
+                '100%': { opacity: '1', transform: 'scale(1) rotate(0deg)' },
+              },
+            },
+            animation: {
+              'scale-in': 'scaleIn 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) forwards',
+              'fade-in-up': 'fadeInUp 0.5s cubic-bezier(0.25, 0.1, 0.25, 1) forwards',
+              'rotate-in': 'rotateIn 0.5s cubic-bezier(0.25, 0.1, 0.25, 1) forwards',
+            },
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.15.0"
+  }
+}
+</script>
+</head>
+  <body class="bg-theme-bg">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
