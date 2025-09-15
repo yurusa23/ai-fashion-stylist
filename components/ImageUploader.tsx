@@ -1,3 +1,5 @@
+
+
 import React, { useCallback, ChangeEvent, useId, useState, DragEvent, KeyboardEvent, ClipboardEvent, useEffect, useRef } from 'react';
 import { UploadedImageInfo, Base64String } from '../types';
 import { UploadIcon, CloseIcon } from './icons';
@@ -183,11 +185,11 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
     [currentImages, onImagesChange]
   );
 
-  const baseDropzoneClasses = "w-full h-full p-4 bg-theme-surface rounded-lg border border-dashed flex items-center justify-center transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theme-bg focus:ring-theme-accent";
-  const draggingDropzoneClasses = "border-theme-accent";
+  const baseDropzoneClasses = "w-full h-full p-4 bg-black/5 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theme-bg focus:ring-theme-accent";
+  const draggingDropzoneClasses = "border-theme-accent bg-theme-accent/10";
   const defaultDropzoneClasses = "border-theme-gray-light hover:border-theme-accent";
   
-  // Single image uploader layout
+  // Single image uploader layout - DEPRECATED in favor of multi-uploader, but kept for potential future use
   if (maxImages === 1) {
     const image = currentImages[0];
     return (
@@ -202,7 +204,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
             onKeyDown={handleKeyDown}
             tabIndex={0}
             className={`${baseDropzoneClasses} ${isDragging ? draggingDropzoneClasses : defaultDropzoneClasses} cursor-pointer flex flex-col text-theme-gray-dark`}
-            aria-label="Upload an image by clicking, dragging, or pasting"
+            aria-label="인물 사진 업로드: 클릭, 드래그, 또는 붙여넣기로 패션 스타일링에 사용할 사진을 추가하세요"
             >
             {image ? (
                 <div className="relative w-full h-full animate-scale-in">
@@ -255,7 +257,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
          onPaste={handlePaste}
          onKeyDown={handleKeyDown}
          tabIndex={0}
-         aria-label="Upload images by clicking, dragging, or pasting"
+         aria-label="인물 사진 업로드: 클릭, 드래그, 또는 붙여넣기로 패션 스타일링에 사용할 사진들을 추가하세요"
        >
         {currentImages.length === 0 ? (
           <div className="w-full h-full flex flex-col items-center justify-center text-theme-gray-dark">
@@ -266,7 +268,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
             </div>
           </div>
        ) : (
-        <div className="w-full h-full grid grid-cols-3 lg:grid-cols-5 gap-2 pointer-events-none">
+        <div className="w-full h-full grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 pointer-events-none">
             {currentImages.map((image, index) => (
                 <div key={index} className="relative aspect-square rounded-md overflow-hidden group bg-theme-bg pointer-events-auto animate-scale-in">
                     <img src={`data:${image.mimeType};base64,${image.base64}`} alt={`Preview ${index + 1}`} className="w-full h-full object-cover" />

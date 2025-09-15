@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, MouseEvent, TouchEvent } from 'react';
 import { CompareHandleIcon } from './icons';
 
@@ -41,8 +42,11 @@ const ImageComparator: React.FC<ImageComparatorProps> = ({ originalImageUrl, edi
   }, [handleMove]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
-    handleMove(e.touches[0].clientX);
-  }, [handleMove]);
+    if (isDragging) {
+      if (e.cancelable) e.preventDefault(); // Prevent scroll while dragging
+      handleMove(e.touches[0].clientX);
+    }
+  }, [isDragging, handleMove]);
 
 
   return (

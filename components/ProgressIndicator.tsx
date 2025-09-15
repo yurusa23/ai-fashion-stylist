@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface ProgressIndicatorProps {
@@ -7,63 +8,46 @@ interface ProgressIndicatorProps {
 
 const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ steps, currentStep }) => {
   return (
-    <nav aria-label="Progress">
-      <ol role="list" className="flex items-center">
-        {steps.map((step, stepIdx) => (
-          <li key={step} className={`relative ${stepIdx !== steps.length - 1 ? 'pr-8 sm:pr-20' : ''}`}>
-            {stepIdx < currentStep ? (
-              <>
-                <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                  <div className="h-0.5 w-full bg-theme-accent" />
-                </div>
-                <div
-                  className="relative flex h-8 w-8 items-center justify-center bg-theme-accent rounded-full"
-                >
-                  <svg
-                    className="h-5 w-5 text-white"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.052-.143z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span className="sr-only">{step} - 완료</span>
-                </div>
-              </>
-            ) : stepIdx === currentStep ? (
-              <>
-                <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                  <div className="h-0.5 w-full bg-theme-gray-light" />
-                </div>
-                <div
-                  className="relative flex h-8 w-8 items-center justify-center bg-theme-bg border-2 border-theme-accent rounded-full"
-                  aria-current="step"
-                >
-                  <span className="h-2.5 w-2.5 bg-theme-accent rounded-full" aria-hidden="true" />
-                  <span className="sr-only">{step} - 현재 단계</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                  <div className="h-0.5 w-full bg-theme-gray-light" />
-                </div>
-                <div
-                  className="relative flex h-8 w-8 items-center justify-center bg-theme-bg border-2 border-theme-gray-light rounded-full"
-                >
-                 <span className="sr-only">{step}</span>
-                </div>
-              </>
-            )}
-             <p className="absolute -bottom-7 w-max -left-2 text-center text-sm font-medium text-theme-text">{step}</p>
-          </li>
-        ))}
-      </ol>
-    </nav>
+    <div role="list" className="flex items-start w-full">
+      {steps.map((step, stepIdx) => (
+        <React.Fragment key={step}>
+          <div className="flex flex-col items-center flex-shrink-0 relative">
+            {/* Circle and Number */}
+            <div className={`
+              w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-300
+              ${stepIdx < currentStep ? 'bg-theme-accent text-white' : ''}
+              ${stepIdx === currentStep ? 'bg-theme-bg border-2 border-theme-accent text-theme-accent' : ''}
+              ${stepIdx > currentStep ? 'bg-theme-surface border border-theme-gray-light text-theme-gray-dark' : ''}
+            `}>
+              {stepIdx < currentStep ? (
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <span>{stepIdx + 1}</span>
+              )}
+            </div>
+            {/* Label */}
+            <p className={`
+              mt-3 text-center text-xs sm:text-sm font-medium transition-colors duration-300 w-20 sm:w-24
+              ${stepIdx <= currentStep ? 'text-theme-text' : 'text-theme-gray-dark'}
+            `}>
+              {step}
+            </p>
+          </div>
+
+          {/* Connecting Line */}
+          {stepIdx < steps.length - 1 && (
+            <div className="flex-1 h-0.5 mt-5 bg-theme-gray-light relative">
+              <div 
+                className="absolute top-0 left-0 h-full bg-theme-accent transition-all duration-500" 
+                style={{ width: stepIdx < currentStep ? '100%' : '0%' }} 
+              />
+            </div>
+          )}
+        </React.Fragment>
+      ))}
+    </div>
   );
 };
 

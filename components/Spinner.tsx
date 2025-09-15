@@ -1,13 +1,13 @@
 
 import React from 'react';
 
-const Spinner: React.FC = () => {
+const Spinner: React.FC<{ className?: string }> = ({ className = 'text-theme-accent' }) => {
   return (
     <svg
-      className="animate-spin h-8 w-8 text-theme-accent"
+      className={`animate-spin h-8 w-8 ${className}`}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
-      viewBox="0 0 24 24"
+      viewBox="0 0 24"
     >
       <circle
         className="opacity-25"

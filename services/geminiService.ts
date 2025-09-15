@@ -1,6 +1,6 @@
 // FIX: Add GenerateContentResponse to import to correctly type API responses.
 import { GoogleGenAI, Modality, Type, GenerateContentResponse } from "@google/genai";
-import { EditResult, UploadedImageInfo, StyleIdeas, Base64String } from '../types';
+import { EditResult, UploadedImageInfo, StyleIdeas, Base64String, OutfitDetails } from '../types';
 import { ApiError, SafetyError } from '../lib/errors';
 
 if (!process.env.API_KEY) {
@@ -63,7 +63,7 @@ export async function getStyleSuggestions(
   height: string,
   ageRange: string,
   personalStyle: string
-): Promise<string[]> {
+): Promise<StyleIdeas> {
   try {
     const details = [];
     if (bodyShape) details.push(`체형이 ${bodyShape}`);
@@ -87,28 +87,46 @@ export async function getStyleSuggestions(
             },
           },
           {
-            text: `이 이미지 속 인물을 분석해주세요.${personaInfo} 어울릴 만한 패셔너블한 의상 아이디어 4가지를 제안해주세요. 제안은 간결하고 창의적이어야 하며, 이미지 생성 모델의 프롬프트로 바로 사용할 수 있어야 합니다. 현재 입고 있는 옷에 대한 설명은 피해주세요. 결과를 JSON 문자열 배열 형태로 제공해주세요. 예: ["클래식한 트렌치 코트와 스트라이프 스웨터, 다크 워시 진 코디", "화사한 플로럴 프린트 선드레스와 스트랩 샌들 코디", ...]`,
+            text: `이 이미지 속 인물을 분석해주세요.${personaInfo} 어울릴 만한 패셔너블한 스타일 아이디어를 제안해주세요. 아이디어는 '헤어스타일', '포즈', '코디' 카테고리로 나누어주세요. '헤어스타일'과 '포즈'는 각각 2~3개의 아이디어를 문자열 배열로 제안해주세요. '코디' 카테고리에서는 2~3개의 완전한 착장을 제안해야 합니다. 각 착장은 '상의', '하의', '신발'과 선택적으로 '아우터', '모자', '악세서리'로 구성된 객체여야 합니다. 각 항목에는 구체적인 아이템과 색상 조합을 포함시켜주세요. 제안은 간결하고 창의적이어야 하며, 이미지 생성 모델의 프롬프트로 바로 사용할 수 있어야 합니다. 현재 입고 있는 옷에 대한 설명은 피해주세요. 결과를 지정된 JSON 형식으로 반환해주세요.`,
           },
         ],
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.STRING,
+          type: Type.OBJECT,
+          properties: {
+            '코디': {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  '상의': { type: Type.STRING, description: '상의 아이템과 색상' },
+                  '하의': { type: Type.STRING, description: '하의 아이템과 색상' },
+                  '신발': { type: Type.STRING, description: '신발 아이템과 색상' },
+                  '아우터': { type: Type.STRING, description: '아우터 아이템과 색상 (선택 사항)' },
+                  '모자': { type: Type.STRING, description: '모자 아이템과 색상 (선택 사항)' },
+                  '악세서리': { type: Type.STRING, description: '악세서리 아이템과 색상 (선택 사항)' },
+                },
+                required: ['상의', '하의', '신발'],
+              },
+            },
+            '헤어스타일': { type: Type.ARRAY, items: { type: Type.STRING } },
+            '포즈': { type: Type.ARRAY, items: { type: Type.STRING } },
           },
+          required: ['코디', '헤어스타일', '포즈'],
         },
       },
     }));
 
     const jsonStr = response.text.trim();
     const suggestions = JSON.parse(jsonStr);
-    if (!Array.isArray(suggestions) || !suggestions.every(s => typeof s === 'string')) {
-        console.error('AI did not return a valid array of strings.', suggestions);
-        return [];
+    
+    if (typeof suggestions !== 'object' || suggestions === null || !suggestions['코디'] || !suggestions['헤어스타일'] || !suggestions['포즈']) {
+        throw new Error('AI가 유효한 형식의 스타일 추천을 반환하지 않았습니다.');
     }
-    return suggestions;
+
+    return suggestions as StyleIdeas;
 
   } catch (error) {
     console.error("Error getting style suggestions:", error);
@@ -117,9 +135,77 @@ export async function getStyleSuggestions(
   }
 }
 
+export async function analyzeStyleFromImage(images: UploadedImageInfo[]): Promise<StyleIdeas> {
+  if (images.length === 0) {
+    throw new Error("No images provided for style analysis.");
+  }
+  
+  try {
+    const imageParts = images.map(image => ({
+      inlineData: {
+        data: image.base64,
+        mimeType: image.mimeType,
+      },
+    }));
+
+    const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: {
+        parts: [
+          ...imageParts,
+          {
+            text: `이 이미지(들)에 나타난 패션 스타일을 분석해주세요. '헤어스타일', '포즈', '코디' 세 가지 카테고리로 나누어 설명해야 합니다. '헤어스타일'과 '포즈'는 각각 1~2개의 키워드를 문자열 배열로 제안해주세요. '코디' 카테고리에서는 보이는 의상을 분석하여 1~2개의 착장을 설명해야 합니다. 각 착장은 '상의', '하의', '신발'과 보이는 경우 '아우터', '모자', '악세서리'로 구성된 객체여야 합니다. 각 항목에는 의상의 스타일, 주요 색상, 전체적인 분위기를 포함하여 구체적으로 설명해주세요. 모든 제안은 이미지 생성 프롬프트로 바로 사용할 수 있도록 간결해야 합니다. 결과를 지정된 JSON 형식으로 반환해주세요.`,
+          },
+        ],
+      },
+       config: {
+        temperature: 0.5,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            '코디': {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  '상의': { type: Type.STRING, description: '상의 아이템과 색상' },
+                  '하의': { type: Type.STRING, description: '하의 아이템과 색상' },
+                  '신발': { type: Type.STRING, description: '신발 아이템과 색상' },
+                  '아우터': { type: Type.STRING, description: '아우터 아이템과 색상 (선택 사항)' },
+                  '모자': { type: Type.STRING, description: '모자 아이템과 색상 (선택 사항)' },
+                  '악세서리': { type: Type.STRING, description: '악세서리 아이템과 색상 (선택 사항)' },
+                },
+                required: ['상의', '하의', '신발'],
+              },
+            },
+            '헤어스타일': { type: Type.ARRAY, items: { type: Type.STRING } },
+            '포즈': { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ['코디', '헤어스타일', '포즈'],
+        },
+      },
+    }));
+    
+    const jsonStr = response.text.trim();
+    const suggestions = JSON.parse(jsonStr);
+
+    if (typeof suggestions !== 'object' || suggestions === null || !suggestions['코디'] || !suggestions['헤어스타일'] || !suggestions['포즈']) {
+        throw new Error('AI가 유효한 형식의 스타일 분석을 반환하지 않았습니다.');
+    }
+
+    return suggestions as StyleIdeas;
+
+  } catch (error) {
+    console.error("Error analyzing style from image:", error);
+    if (error instanceof Error) throw error;
+    throw new ApiError("참고 이미지의 스타일을 분석하는 데 실패했습니다.");
+  }
+}
 
 export async function editImage(
   portraitImages: UploadedImageInfo[],
+  styleReferenceImages: UploadedImageInfo[],
   prompt: string,
   bodyShape: string,
   height: string,
@@ -127,7 +213,14 @@ export async function editImage(
   personalStyle: string
 ): Promise<EditResult> {
   try {
-    const imageParts = portraitImages.map(image => ({
+    const portraitImageParts = portraitImages.map(image => ({
+        inlineData: {
+            data: image.base64,
+            mimeType: image.mimeType,
+        },
+    }));
+
+    const styleReferenceImageParts = styleReferenceImages.map(image => ({
         inlineData: {
             data: image.base64,
             mimeType: image.mimeType,
@@ -143,15 +236,24 @@ export async function editImage(
     const personaInfo = details.length > 0
       ? `참고로, 사진 속 인물은 ${details.join(', ')}입니다. 이 정보를 반영하여 이미지를 생성해주세요.`
       : '';
+    
+    const referenceImageInstruction = styleReferenceImages.length > 0
+        ? " 이어지는 참고 이미지(들)의 스타일을 반영하고,"
+        : "";
+    
+    const blockReferenceImageReturnInstruction = styleReferenceImages.length > 0
+        ? " 결과물은 반드시 '새롭게 생성된' 이미지여야 하며, 입력된 참고 이미지를 그대로 반환해서는 안 됩니다."
+        : " 결과물은 반드시 '새롭게 생성된' 이미지여야 합니다.";
 
-    const engineeredPrompt = `주어진 인물 사진을 아래 요청에 따라 수정해주세요. ${personaInfo} 결과물은 반드시 수정된 이미지여야 합니다.\n\n---\n사용자 요청: "${prompt}"`;
+    const engineeredPrompt = `첫 번째로 제공된 인물 사진(들)의 얼굴과 체형을 유지하면서,${referenceImageInstruction} 아래 사용자 요청에 따라 새로운 이미지를 생성해주세요.${blockReferenceImageReturnInstruction} 당신의 주된 임무는 텍스트 설명이나 거절 메시지 없이, 요청을 최대한 해석하여 이미지를 편집하고 생성하는 것입니다. ${personaInfo}\n\n---\n사용자 요청: "${prompt}"`;
     
     // FIX: Explicitly type the API response to resolve 'unknown' type errors.
     const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
       model: 'gemini-2.5-flash-image-preview',
       contents: {
         parts: [
-          ...imageParts,
+          ...portraitImageParts, // Subject image(s) first to establish context
+          ...styleReferenceImageParts, // Style reference image(s) second
           {
             text: engineeredPrompt,
           },
