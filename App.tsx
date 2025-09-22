@@ -1,10 +1,9 @@
-
 import React, { useState, useCallback, useEffect, useRef, useReducer } from 'react';
 import ImageUploader from './components/ImageUploader';
 import Spinner from './components/Spinner';
 import { SparklesIcon, DownloadIcon, ExpandIcon, ShareIcon, RefreshIcon, ContinueIcon, CloseIcon, BackIcon, ChevronDownIcon } from './components/icons';
-import { UploadedImageInfo, EditResult, StyleIdeas, OutfitDetails } from './types';
-import { editImage, getStyleSuggestions, fetchStyleIdeas, analyzeStyleFromImage } from './services/geminiService';
+import { UploadedImageInfo, EditResult, StyleIdeas, OutfitDetails, GeneralSuggestions, Season, FASHION_STYLES, FashionStyle } from './types';
+import { editImage, getGeneralSuggestions, getOutfitSuggestion, fetchStyleIdeas, analyzeStyleFromImage, getHairstyleSuggestions, getPoseSuggestions } from './services/geminiService';
 import ImageModal from './components/ImageModal';
 import { logError, logEvent } from './lib/logger';
 import ProgressIndicator from './components/ProgressIndicator';
@@ -18,6 +17,7 @@ interface AppState {
   height: string;
   ageRange: string;
   personalStyle: string;
+  cameraComposition: 'keep' | 'recompose';
   
   result: EditResult | null;
   originalImageForDisplay: UploadedImageInfo | null;
@@ -56,6 +56,7 @@ type AppAction =
   | { type: 'ANALYZE_STYLE_SUCCESS'; payload: StyleIdeas }
   | { type: 'ANALYZE_STYLE_ERROR'; payload: string }
   | { type: 'CLEAR_STYLE_ANALYSIS' }
+  | { type: 'SET_CAMERA_COMPOSITION'; payload: 'keep' | 'recompose' }
   | { type: 'SET_SHARE_SUPPORT'; payload: boolean };
 
 
@@ -67,6 +68,7 @@ const initialState: AppState = {
   height: '',
   ageRange: '',
   personalStyle: '',
+  cameraComposition: 'keep',
   result: null,
   originalImageForDisplay: null,
   isInfoSaved: false,
@@ -126,7 +128,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
             result: null,
             error: null,
             prompt: '',
-            appStatus: 'analyzing', // Start analyzing for new suggestions
+            appStatus: 'idle', 
+            isInfoSaved: false, // Force user to re-evaluate suggestions for the new image
         };
     case 'RETURN_TO_PROMPT':
         return {
@@ -144,6 +147,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
         return { ...state, isAnalyzingStyle: false, styleReferenceAnalysis: null, styleReferenceAnalysisError: action.payload };
     case 'CLEAR_STYLE_ANALYSIS':
         return { ...state, isAnalyzingStyle: false, styleReferenceAnalysis: null, styleReferenceAnalysisError: null };
+    case 'SET_CAMERA_COMPOSITION':
+        return { ...state, cameraComposition: action.payload };
     case 'SET_SHARE_SUPPORT':
         return { ...state, isShareSupported: action.payload };
     default:
@@ -159,23 +164,37 @@ const loadingMessages = [
     '디테일을 살려 완벽한 작품을 만드는 중...',
 ];
 
+const SEASONS: Season[] = ['봄', '여름', '가을', '겨울'];
 const bodyShapeOptions = [ { value: '스트레이트', label: '스트레이트' }, { value: '모래시계', label: '모래시계' }, { value: '서양배', label: '서양배' }, { value: '사과', label: '사과' }, { value: '역삼각형', label: '역삼각형' }];
 const ageRangeOptions = [ { value: '10대', label: '10대' }, { value: '20대', label: '20대' }, { value: '30대', label: '30대' }, { value: '40대 이상', label: '40대 이상' }];
 const personalStyleOptions = [ { value: '캐주얼', label: '캐주얼' }, { value: '미니멀', label: '미니멀' }, { value: '스트릿', label: '스트릿' }, { value: '포멀', label: '포멀' }, { value: '페미닌', label: '페미닌' }, { value: '빈티지', label: '빈티지' }];
+
+type OutfitSuggestionState = Partial<Record<Season, Partial<Record<FashionStyle, OutfitDetails[] | 'loading' | 'error' | string>>>>;
+
 
 // --- App Component ---
 const App: React.FC = () => {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>(loadingMessages[0]);
-  const [aiSuggestions, setAiSuggestions] = useState<StyleIdeas | null>(null);
+  
+  // State for AI suggestions
+  const [generalSuggestions, setGeneralSuggestions] = useState<GeneralSuggestions | null>(null);
+  const [outfitSuggestions, setOutfitSuggestions] = useState<OutfitSuggestionState>({});
+  const [activeSeason, setActiveSeason] = useState<Season>('봄');
+  const [selectedStyle, setSelectedStyle] = useState<FashionStyle | null>(null);
+  const [isRefreshingSuggestions, setIsRefreshingSuggestions] = useState({
+    hairstyle: false,
+    pose: false,
+  });
+
   const [activeSuggestionTab, setActiveSuggestionTab] = useState<'ai' | 'ideas'>('ai');
   
   const promptSectionRef = useRef<HTMLDivElement>(null);
   const throttleTimeoutRef = useRef<number | null>(null);
 
   const {
-      portraitImages, styleReferenceImages, prompt, bodyShape, height, ageRange, personalStyle,
+      portraitImages, styleReferenceImages, prompt, bodyShape, height, ageRange, personalStyle, cameraComposition,
       result, originalImageForDisplay, isInfoSaved, appStatus, error,
       styleIdeas, isShareSupported, isFetchingIdeas, isAnalyzingStyle, 
       styleReferenceAnalysis, styleReferenceAnalysisError
@@ -230,7 +249,8 @@ const App: React.FC = () => {
     if (images.length > 0) {
       logEvent('image_uploaded', { count: images.length });
     }
-    setAiSuggestions(null); // Clear old suggestions
+    setGeneralSuggestions(null); // Clear old suggestions
+    setOutfitSuggestions({});
   }, []);
 
   const handleStyleReferenceImagesChange = useCallback(async (images: UploadedImageInfo[]) => {
@@ -253,14 +273,14 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const fetchAndSetSuggestions = useCallback(async (image: UploadedImageInfo) => {
+  const fetchAndSetGeneralSuggestions = useCallback(async (image: UploadedImageInfo) => {
     try {
-      const suggestions = await getStyleSuggestions(image, bodyShape, height, ageRange, personalStyle);
-      setAiSuggestions(suggestions);
+      const suggestions = await getGeneralSuggestions(image, bodyShape, height, ageRange, personalStyle);
+      setGeneralSuggestions(suggestions);
       dispatch({ type: 'SAVE_INFO_SUCCESS' });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'AI 추천을 생성하는 데 실패했습니다.';
-      logError(err as Error, { context: 'fetchAndSetSuggestions' });
+      logError(err as Error, { context: 'fetchAndSetGeneralSuggestions' });
       dispatch({ type: 'SAVE_INFO_ERROR', payload: errorMessage });
     }
   }, [bodyShape, height, ageRange, personalStyle]);
@@ -268,7 +288,7 @@ const App: React.FC = () => {
   const handleInfoSave = async () => {
     if (portraitImages.length > 0) {
       dispatch({ type: 'SAVE_INFO_START' });
-      await fetchAndSetSuggestions(portraitImages[0]);
+      await fetchAndSetGeneralSuggestions(portraitImages[0]);
       setActiveSuggestionTab('ai'); // Switch to AI tab after getting suggestions
       if (promptSectionRef.current) {
         promptSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -276,17 +296,87 @@ const App: React.FC = () => {
     }
   };
   
-  const handleRefreshSuggestions = useCallback(async () => {
-      if (portraitImages.length === 0) return;
-      
-      if (throttleTimeoutRef.current) return;
-      throttleTimeoutRef.current = window.setTimeout(() => {
-          throttleTimeoutRef.current = null;
-      }, 1000); // 1 second throttle
+  const handleGetOutfitSuggestion = useCallback(async (season: Season, style: FashionStyle) => {
+    if (portraitImages.length === 0) return;
 
-      dispatch({ type: 'SAVE_INFO_START' });
-      await fetchAndSetSuggestions(portraitImages[0]);
-  }, [portraitImages, fetchAndSetSuggestions, dispatch]);
+    setOutfitSuggestions(prev => ({
+        ...prev,
+        [season]: {
+            ...prev[season],
+            [style]: 'loading'
+        }
+    }));
+
+    try {
+        const outfits = await getOutfitSuggestion(portraitImages[0], season, style, bodyShape, height, ageRange, personalStyle);
+        setOutfitSuggestions(prev => ({
+            ...prev,
+            [season]: {
+                ...prev[season],
+                [style]: outfits
+            }
+        }));
+        logEvent('get_outfit_suggestion_success', { season, style });
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : '추천 생성 실패';
+        logError(err as Error, { context: 'handleGetOutfitSuggestion', season, style });
+        setOutfitSuggestions(prev => ({
+            ...prev,
+            [season]: {
+                ...prev[season],
+                [style]: errorMessage
+            }
+        }));
+    }
+  }, [portraitImages, bodyShape, height, ageRange, personalStyle]);
+
+  const handleStyleButtonClick = (style: FashionStyle) => {
+    if (selectedStyle === style) {
+        setSelectedStyle(null);
+    } else {
+        setSelectedStyle(style);
+        const suggestionState = outfitSuggestions[activeSeason]?.[style];
+        // Only fetch if we don't have data for it yet.
+        if (!suggestionState) {
+            handleGetOutfitSuggestion(activeSeason, style);
+        }
+    }
+  };
+
+  const handleRefreshHairstyles = useCallback(async () => {
+    if (portraitImages.length === 0) return;
+    setIsRefreshingSuggestions(prev => ({ ...prev, hairstyle: true }));
+    try {
+        const newSuggestions = await getHairstyleSuggestions(portraitImages[0], bodyShape, height, ageRange, personalStyle);
+        setGeneralSuggestions(prev => ({
+            ...(prev ?? { '헤어스타일': [], '포즈': [] }),
+            '헤어스타일': newSuggestions['헤어스타일'],
+        }));
+        logEvent('refresh_hairstyles_success');
+    } catch (err) {
+        logError(err as Error, { context: 'handleRefreshHairstyles' });
+    } finally {
+        setIsRefreshingSuggestions(prev => ({ ...prev, hairstyle: false }));
+    }
+  }, [portraitImages, bodyShape, height, ageRange, personalStyle]);
+
+  const handleRefreshPoses = useCallback(async () => {
+    if (portraitImages.length === 0) return;
+    setIsRefreshingSuggestions(prev => ({ ...prev, pose: true }));
+    try {
+        const newSuggestions = await getPoseSuggestions(portraitImages[0], bodyShape, height, ageRange, personalStyle);
+        setGeneralSuggestions(prev => ({
+            ...(prev ?? { '헤어스타일': [], '포즈': [] }),
+            '포즈': newSuggestions['포즈'],
+        }));
+        logEvent('refresh_poses_success');
+    } catch (err) {
+        logError(err as Error, { context: 'handleRefreshPoses' });
+    } finally {
+        setIsRefreshingSuggestions(prev => ({ ...prev, pose: false }));
+    }
+  }, [portraitImages, bodyShape, height, ageRange, personalStyle]);
+
 
   const handleGenerateClick = async () => {
     if (portraitImages.length === 0 || !prompt.trim()) {
@@ -298,7 +388,7 @@ const App: React.FC = () => {
     dispatch({ type: 'GENERATE_START', payload: portraitImages[0] });
 
     try {
-      const editResult = await editImage(portraitImages, styleReferenceImages, prompt, bodyShape, height, ageRange, personalStyle);
+      const editResult = await editImage(portraitImages, styleReferenceImages, prompt, bodyShape, height, ageRange, personalStyle, cameraComposition);
       dispatch({ type: 'GENERATE_SUCCESS', payload: editResult });
       logEvent('generate_success');
       if (!editResult.image) {
@@ -331,10 +421,12 @@ const App: React.FC = () => {
     dispatch({type: 'CONTINUE_EDITING', payload: newImage});
     logEvent('continue_editing');
 
-    // Fetch new suggestions for the newly generated image
-    fetchAndSetSuggestions(newImage);
+    // Reset suggestions for the new image
+    setGeneralSuggestions(null);
+    setOutfitSuggestions({});
+    setSelectedStyle(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [result, fetchAndSetSuggestions]);
+  }, [result]);
   
   const handleReturnToPrompt = useCallback(() => {
     dispatch({ type: 'RETURN_TO_PROMPT' });
@@ -395,7 +487,8 @@ const App: React.FC = () => {
                 <button
                     key={`${type}-${index}`}
                     onClick={() => {
-                        dispatch({ type: 'SET_USER_INFO', payload: { field: 'prompt', value: item } });
+                        const newPrompt = (prompt ? prompt + ', ' : '') + item;
+                        dispatch({ type: 'SET_USER_INFO', payload: { field: 'prompt', value: newPrompt } });
                         logEvent('suggestion_clicked', { type, text: item });
                     }}
                     className="w-full text-left p-3 bg-theme-bg/60 rounded-lg hover:bg-theme-accent/10 hover:text-theme-accent transition-colors duration-200 text-sm animate-fade-in-up opacity-0"
@@ -415,7 +508,7 @@ const App: React.FC = () => {
         return (
             <div
                 key={`${type}-${index}`}
-                className="w-full text-left p-3 bg-theme-bg/60 rounded-lg transition-colors duration-200 animate-fade-in-up opacity-0"
+                className="w-full text-left p-3 bg-white/50 rounded-lg transition-colors duration-200 animate-fade-in-up opacity-0"
                 style={{ animationDelay: `${index * 50}ms` }}
             >
                 <ul className="space-y-1.5 text-sm">
@@ -434,7 +527,8 @@ const App: React.FC = () => {
                 </ul>
                 <button
                     onClick={() => {
-                        dispatch({ type: 'SET_USER_INFO', payload: { field: 'prompt', value: fullPromptText } });
+                        const newPrompt = (prompt ? prompt + ', ' : '') + fullPromptText;
+                        dispatch({ type: 'SET_USER_INFO', payload: { field: 'prompt', value: newPrompt } });
                         logEvent('suggestion_clicked', { type: '코디', text: fullPromptText });
                     }}
                     className="mt-3 w-full text-center text-xs font-semibold text-theme-accent bg-theme-accent/10 py-1.5 px-3 rounded-md hover:bg-theme-accent/20 transition-colors"
@@ -444,7 +538,7 @@ const App: React.FC = () => {
                 </button>
             </div>
         );
-    }, [dispatch]);
+    }, [dispatch, prompt]);
 
     const renderSuggestionCategory = useCallback((title: string, items: (string | OutfitDetails)[] | undefined, type: '코디' | '헤어스타일' | '포즈') => {
         if (!items || items.length === 0) return null;
@@ -460,25 +554,164 @@ const App: React.FC = () => {
     
     const renderSuggestionsContent = useCallback(() => {
         if (activeSuggestionTab === 'ai') {
-            if (isAnalyzing && !aiSuggestions) {
+            if (isAnalyzing && !generalSuggestions && !styleReferenceAnalysis) {
                 return <div className="flex items-center justify-center h-full pt-10"><Spinner /></div>;
             }
-            const hasSuggestions = aiSuggestions || styleReferenceAnalysis;
+            const hasSuggestions = generalSuggestions || styleReferenceAnalysis;
             return (
                 <div>
                     {!hasSuggestions && <p className="text-sm text-theme-gray-dark text-center py-8">인물 정보 입력 후 'AI 스타일 추천받기'를 클릭하면 맞춤 추천을 볼 수 있어요.</p>}
                     
-                    {aiSuggestions && (
+                     {isInfoSaved && (
                         <div className="animate-fade-in-up">
                             <div className="flex justify-between items-center mb-3">
                                 <h3 className="font-semibold text-theme-text">내 사진 기반 추천</h3>
-                                <button onClick={handleRefreshSuggestions} disabled={isAnalyzing} className="text-sm text-theme-accent hover:underline disabled:opacity-50 flex items-center gap-1"><RefreshIcon className={`w-4 h-4 ${isAnalyzing ? 'animate-spin' : ''}`} /> 새 추천 받기</button>
                             </div>
-                            {renderSuggestionCategory('코디', aiSuggestions['코디'], '코디')}
-                            {renderSuggestionCategory('헤어스타일', aiSuggestions['헤어스타일'], '헤어스타일')}
-                            {renderSuggestionCategory('포즈', aiSuggestions['포즈'], '포즈')}
+                            
+                            <div className="mb-6">
+                                <h4 className="text-sm font-bold text-theme-text mb-2">계절별 코디 추천</h4>
+                                <div className="flex space-x-1 bg-theme-bg p-1 rounded-lg mb-4">
+                                    {SEASONS.map(season => (
+                                        <button key={season} onClick={() => { setActiveSeason(season); setSelectedStyle(null); }} className={`flex-1 text-center text-sm font-semibold p-2 rounded-md transition-colors duration-200 ${activeSeason === season ? 'bg-white text-theme-accent shadow-sm' : 'text-theme-gray-dark hover:bg-white/50'}`}>
+                                            {season}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    {FASHION_STYLES.map(style => {
+                                        const isSelected = selectedStyle === style;
+                                        const suggestionState = outfitSuggestions[activeSeason]?.[style];
+                                        const isLoadingStyle = suggestionState === 'loading';
+                                        const hasResult = Array.isArray(suggestionState);
+                                        const hasError = typeof suggestionState === 'string' && suggestionState !== 'loading';
+
+                                        if (selectedStyle && !isSelected) {
+                                            return <div key={`${activeSeason}-${style}`} className="opacity-0 scale-50 transition-all duration-300" aria-hidden="true" />;
+                                        }
+
+                                        return (
+                                            <div
+                                                key={`${activeSeason}-${style}`}
+                                                className={`relative transition-all duration-500 ease-in-out ${isSelected ? 'col-span-full min-h-[450px]' : ''}`}
+                                            >
+                                                <button
+                                                    onClick={() => handleStyleButtonClick(style)}
+                                                    disabled={!!selectedStyle && !isSelected}
+                                                    className={`w-full h-full text-left rounded-lg shadow-soft transition-all duration-300 flex flex-col items-center
+                                                      ${isSelected ? 'bg-white/80 p-6 justify-start' : 'bg-white/60 p-3 justify-center'}
+                                                    `}
+                                                >
+                                                    <span className={`font-medium text-theme-text transition-all duration-300 ${isSelected ? 'text-xl font-bold' : 'text-sm'}`}>
+                                                        {style}
+                                                    </span>
+
+                                                    {isSelected && (
+                                                        <div className="mt-4 w-full flex-grow flex flex-col items-center justify-center animate-fade-in-up" style={{ animationDelay: '250ms' }}>
+                                                            {isLoadingStyle && (
+                                                                <div className="flex flex-col justify-center items-center p-4 text-theme-text">
+                                                                    <Spinner className="w-6 h-6 mb-2" />
+                                                                    <span className="text-sm">코디 분석중입니다...</span>
+                                                                </div>
+                                                            )}
+                                                            {hasResult && (
+                                                               <div className="w-full text-left space-y-4">
+                                                                    {(suggestionState as OutfitDetails[]).map((outfit, index) => (
+                                                                        <div key={index} className="bg-theme-bg/60 p-3 rounded-lg animate-fade-in-up" style={{ animationDelay: `${index * 100}ms` }}>
+                                                                            <h5 className="font-semibold text-sm text-theme-text mb-2">추천 코디 #{index + 1}</h5>
+                                                                            <ul className="space-y-1 text-sm">
+                                                                                {(['아우터', '상의', '하의', '신발', '모자', '악세서리'] as const).map(category => {
+                                                                                    const value = outfit[category];
+                                                                                    if (value) {
+                                                                                        return (
+                                                                                            <li key={category} className="flex items-start">
+                                                                                                <span className="font-semibold w-14 flex-shrink-0 text-theme-gray-dark text-xs pt-0.5">{category}</span>
+                                                                                                <span className="text-theme-text">{value}</span>
+                                                                                            </li>
+                                                                                        );
+                                                                                    }
+                                                                                    return null;
+                                                                                })}
+                                                                            </ul>
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation(); // Prevent card from closing
+                                                                                    const fullPromptText = Object.values(outfit).filter(Boolean).join(', ');
+                                                                                    const newPrompt = (prompt ? prompt + ', ' : '') + fullPromptText;
+                                                                                    dispatch({ type: 'SET_USER_INFO', payload: { field: 'prompt', value: newPrompt } });
+                                                                                    logEvent('suggestion_clicked', { type: '코디', text: fullPromptText });
+                                                                                }}
+                                                                                className="mt-3 w-full text-center text-xs font-semibold text-theme-accent bg-theme-accent/10 py-1.5 px-3 rounded-md hover:bg-theme-accent/20 transition-colors"
+                                                                                aria-label={`프롬프트에 추천 코디 ${index + 1} 추가`}
+                                                                            >
+                                                                                이 코디 프롬프트에 추가
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                             {hasError && (
+                                                                <p className="text-sm text-theme-error text-center p-4">
+                                                                    오류: {suggestionState as string}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </button>
+                                                {isSelected && (
+                                                    <button
+                                                        onClick={() => handleGetOutfitSuggestion(activeSeason, style)}
+                                                        disabled={isLoadingStyle}
+                                                        className="absolute top-4 right-4 p-2 text-theme-gray-dark hover:text-theme-accent bg-white rounded-full shadow-soft transition-colors z-10 animate-scale-in"
+                                                        aria-label={`${style} 스타일 추천 새로고침`}
+                                                    >
+                                                        <RefreshIcon className={`w-5 h-5 ${isLoadingStyle ? 'animate-spin' : ''}`} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                            
+                            {generalSuggestions && !selectedStyle && (
+                                <>
+                                    <div className="mb-4">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h4 className="text-sm font-bold text-theme-text">헤어스타일</h4>
+                                            <button onClick={handleRefreshHairstyles} disabled={isRefreshingSuggestions.hairstyle} className="text-sm text-theme-accent hover:underline flex items-center gap-1 disabled:opacity-50">
+                                                <RefreshIcon className={`w-4 h-4 ${isRefreshingSuggestions.hairstyle ? 'animate-spin' : ''}`} />
+                                                <span>새로고침</span>
+                                            </button>
+                                        </div>
+                                        {isRefreshingSuggestions.hairstyle ? (
+                                            <div className="flex items-center justify-center h-24"><Spinner /></div>
+                                        ) : generalSuggestions['헤어스타일'] && (
+                                            <div className="flex flex-col gap-2">
+                                                {generalSuggestions['헤어스타일'].map((item, index) => renderSuggestionItem(item, '헤어스타일', index))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="mb-4">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h4 className="text-sm font-bold text-theme-text">포즈</h4>
+                                            <button onClick={handleRefreshPoses} disabled={isRefreshingSuggestions.pose} className="text-sm text-theme-accent hover:underline flex items-center gap-1 disabled:opacity-50">
+                                                <RefreshIcon className={`w-4 h-4 ${isRefreshingSuggestions.pose ? 'animate-spin' : ''}`} />
+                                                <span>새로고침</span>
+                                            </button>
+                                        </div>
+                                        {isRefreshingSuggestions.pose ? (
+                                            <div className="flex items-center justify-center h-24"><Spinner /></div>
+                                        ) : generalSuggestions['포즈'] && (
+                                            <div className="flex flex-col gap-2">
+                                                {generalSuggestions['포즈'].map((item, index) => renderSuggestionItem(item, '포즈', index))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
+
 
                     {styleReferenceAnalysis && (
                         <div className="mt-6 pt-4 border-t border-theme-gray-light animate-fade-in-up">
@@ -517,7 +750,7 @@ const App: React.FC = () => {
             );
         }
         return null;
-    }, [activeSuggestionTab, isAnalyzing, aiSuggestions, styleReferenceAnalysis, styleReferenceAnalysisError, isFetchingIdeas, styleIdeas, renderSuggestionCategory, handleRefreshSuggestions, refreshStyleIdeas]);
+    }, [activeSuggestionTab, isAnalyzing, generalSuggestions, outfitSuggestions, activeSeason, selectedStyle, styleReferenceAnalysis, styleReferenceAnalysisError, isFetchingIdeas, styleIdeas, renderSuggestionCategory, refreshStyleIdeas, renderSuggestionItem, isInfoSaved, dispatch, prompt, handleGetOutfitSuggestion, handleRefreshHairstyles, handleRefreshPoses, isRefreshingSuggestions]);
 
 
   const renderContent = () => {
@@ -612,7 +845,35 @@ const App: React.FC = () => {
                         <section className="bg-theme-surface backdrop-blur-xl border border-white/30 shadow-soft rounded-2xl p-6 md:p-8">
                              <h2 className="text-xl font-bold text-theme-text mb-4">스타일 설명</h2>
                             <div className="relative w-full"><textarea className="w-full bg-theme-bg/80 border-2 border-theme-gray-light rounded-lg p-4 pr-10 placeholder-theme-gray-dark focus:outline-none focus:ring-2 focus:ring-theme-accent focus:border-transparent transition-all duration-200 min-h-[150px] text-base" placeholder="예시: 오버사이즈 그레이 블레이저를 입고 주머니에 손을 넣은 포즈로 바꿔줘." value={prompt} onChange={(e) => dispatch({type: 'SET_USER_INFO', payload: {field: 'prompt', value: e.target.value}})} disabled={isLoading} />{prompt && !isLoading && (<button onClick={() => dispatch({type: 'SET_USER_INFO', payload: {field: 'prompt', value: ''}})} className="absolute top-3 right-3 p-1 text-theme-gray-dark hover:text-theme-text hover:bg-theme-gray-light/50 rounded-full transition-colors duration-200" aria-label="프롬프트 지우기"><CloseIcon className="w-5 h-5" /></button>)}</div>
-                            <div className="mt-4"><h3 className="text-base font-semibold text-theme-text mb-2">참고 스타일 이미지 (선택)</h3><p className="text-sm text-theme-gray-dark mb-3">원하는 스타일의 사진을 추가하여 AI에게 더 정확한 요청을 할 수 있습니다. (최대 5장)</p><div className="h-40"><ImageUploader onImagesChange={handleStyleReferenceImagesChange} currentImages={styleReferenceImages} maxImages={5} /></div>{/* Analysis Result Display */}</div>
+                            <div className="mt-6">
+                                <h3 className="text-base font-semibold text-theme-text mb-2">카메라 구도</h3>
+                                <p className="text-sm text-theme-gray-dark mb-3">생성될 이미지의 카메라 구도를 선택하세요.</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        onClick={() => dispatch({ type: 'SET_CAMERA_COMPOSITION', payload: 'keep' })}
+                                        type="button"
+                                        className={`w-full text-center p-3 rounded-lg border-2 transition-colors duration-200 text-sm font-medium ${
+                                            cameraComposition === 'keep'
+                                                ? 'bg-theme-accent/10 border-theme-accent text-theme-accent ring-1 ring-theme-accent'
+                                                : 'bg-theme-bg/80 border-theme-gray-light hover:border-theme-accent/50'
+                                        }`}
+                                    >
+                                        기존 구도 유지
+                                    </button>
+                                    <button
+                                        onClick={() => dispatch({ type: 'SET_CAMERA_COMPOSITION', payload: 'recompose' })}
+                                        type="button"
+                                        className={`w-full text-center p-3 rounded-lg border-2 transition-colors duration-200 text-sm font-medium ${
+                                            cameraComposition === 'recompose'
+                                                ? 'bg-theme-accent/10 border-theme-accent text-theme-accent ring-1 ring-theme-accent'
+                                                : 'bg-theme-bg/80 border-theme-gray-light hover:border-theme-accent/50'
+                                        }`}
+                                    >
+                                        새로운 구도 제안
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="mt-6"><h3 className="text-base font-semibold text-theme-text mb-2">참고 스타일 이미지 (선택)</h3><p className="text-sm text-theme-gray-dark mb-3">원하는 스타일의 사진을 추가하여 AI에게 더 정확한 요청을 할 수 있습니다. (최대 5장)</p><div className="h-40"><ImageUploader onImagesChange={handleStyleReferenceImagesChange} currentImages={styleReferenceImages} maxImages={5} /></div>{/* Analysis Result Display */}</div>
                             <div className="mt-6"><div className="border-b border-theme-gray-light flex space-x-4"><button onClick={() => setActiveSuggestionTab('ai')} className={`py-2 px-1 text-sm font-semibold transition-colors duration-200 ${ activeSuggestionTab === 'ai' ? 'border-b-2 border-theme-accent text-theme-accent' : 'text-theme-gray-dark hover:text-theme-text'}`}>AI 추천 스타일</button><button onClick={() => setActiveSuggestionTab('ideas')} className={`py-2 px-1 text-sm font-semibold transition-colors duration-200 ${ activeSuggestionTab === 'ideas' ? 'border-b-2 border-theme-accent text-theme-accent' : 'text-theme-gray-dark hover:text-theme-text'}`}>최신 트렌드 아이디어</button></div><div className="pt-4 min-h-[200px]">{renderSuggestionsContent()}</div></div>
                         </section>
                         <button onClick={handleGenerateClick} disabled={isLoading || portraitImages.length === 0 || !prompt} className="w-full flex items-center justify-center gap-3 bg-theme-accent text-white font-bold text-lg py-4 px-6 rounded-xl shadow-medium hover:bg-theme-accent-hover disabled:bg-theme-gray-light disabled:text-theme-gray-dark disabled:cursor-not-allowed transition-all duration-200 active:scale-95">{isGenerating ? (<><Spinner /><span>생성 중...</span></>) : (<><SparklesIcon className="h-6 w-6" /><span>스타일 적용</span></>)}</button>
@@ -625,7 +886,7 @@ const App: React.FC = () => {
   
   return (
     <>
-      <div className="min-h-screen bg-theme-bg text-theme-text font-sans p-4 sm:p-6 md:p-8 overflow-x-hidden">
+      <div className="h-full w-full bg-theme-bg text-theme-text font-sans p-4 sm:p-6 md:p-8 overflow-y-auto overflow-x-hidden">
         <style>{`.transition-all { transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1); } details[open] summary ~ * { animation: slideInUp 0.5s ease-out; } details[open] summary svg { transform: rotate(180deg); }`}</style>
         <div className="max-w-7xl mx-auto">
           <header className="text-center mb-10 md:mb-12">
