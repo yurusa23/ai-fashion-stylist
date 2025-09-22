@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useReducer } from 'react';
 import ImageUploader from './components/ImageUploader';
 import Spinner from './components/Spinner';
-import { SparklesIcon, DownloadIcon, ExpandIcon, ShareIcon, RefreshIcon, ContinueIcon, CloseIcon, BackIcon, ChevronDownIcon } from './components/icons';
+import { SparklesIcon, DownloadIcon, ExpandIcon, ShareIcon, RefreshIcon, ContinueIcon, CloseIcon, BackIcon, ChevronDownIcon, FrameIcon } from './components/icons';
 import { UploadedImageInfo, EditResult, StyleIdeas, OutfitDetails, GeneralSuggestions, Season, FASHION_STYLES, FashionStyle } from './types';
 import { editImage, getGeneralSuggestions, getOutfitSuggestion, fetchStyleIdeas, analyzeStyleFromImage, getHairstyleSuggestions, getPoseSuggestions } from './services/geminiService';
 import ImageModal from './components/ImageModal';
@@ -847,29 +847,41 @@ const App: React.FC = () => {
                             <div className="relative w-full"><textarea className="w-full bg-theme-bg/80 border-2 border-theme-gray-light rounded-lg p-4 pr-10 placeholder-theme-gray-dark focus:outline-none focus:ring-2 focus:ring-theme-accent focus:border-transparent transition-all duration-200 min-h-[150px] text-base" placeholder="예시: 오버사이즈 그레이 블레이저를 입고 주머니에 손을 넣은 포즈로 바꿔줘." value={prompt} onChange={(e) => dispatch({type: 'SET_USER_INFO', payload: {field: 'prompt', value: e.target.value}})} disabled={isLoading} />{prompt && !isLoading && (<button onClick={() => dispatch({type: 'SET_USER_INFO', payload: {field: 'prompt', value: ''}})} className="absolute top-3 right-3 p-1 text-theme-gray-dark hover:text-theme-text hover:bg-theme-gray-light/50 rounded-full transition-colors duration-200" aria-label="프롬프트 지우기"><CloseIcon className="w-5 h-5" /></button>)}</div>
                             <div className="mt-6">
                                 <h3 className="text-base font-semibold text-theme-text mb-2">카메라 구도</h3>
-                                <p className="text-sm text-theme-gray-dark mb-3">생성될 이미지의 카메라 구도를 선택하세요.</p>
-                                <div className="grid grid-cols-2 gap-2">
+                                <p className="text-sm text-theme-gray-dark mb-3">생성될 이미지의 카메라 앵글과 프레임을 선택하세요.</p>
+                                <div className="grid grid-cols-2 gap-3">
                                     <button
                                         onClick={() => dispatch({ type: 'SET_CAMERA_COMPOSITION', payload: 'keep' })}
                                         type="button"
-                                        className={`w-full text-center p-3 rounded-lg border-2 transition-colors duration-200 text-sm font-medium ${
+                                        className={`w-full text-center p-4 rounded-xl border-2 transition-all duration-200 flex flex-col items-center justify-start gap-2 h-32 ${
                                             cameraComposition === 'keep'
-                                                ? 'bg-theme-accent/10 border-theme-accent text-theme-accent ring-1 ring-theme-accent'
-                                                : 'bg-theme-bg/80 border-theme-gray-light hover:border-theme-accent/50'
+                                                ? 'bg-theme-accent/10 border-theme-accent text-theme-accent ring-2 ring-theme-accent'
+                                                : 'bg-theme-bg/80 border-theme-gray-light hover:border-theme-accent/50 hover:shadow-soft'
                                         }`}
                                     >
-                                        기존 구도 유지
+                                        <FrameIcon className="w-6 h-6 mb-1 flex-shrink-0" />
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-sm">기존 구도 유지</span>
+                                            <span className="text-xs text-theme-gray-dark mt-1">
+                                                원본 사진의 앵글과 프레임을 유지합니다.
+                                            </span>
+                                        </div>
                                     </button>
                                     <button
                                         onClick={() => dispatch({ type: 'SET_CAMERA_COMPOSITION', payload: 'recompose' })}
                                         type="button"
-                                        className={`w-full text-center p-3 rounded-lg border-2 transition-colors duration-200 text-sm font-medium ${
+                                        className={`w-full text-center p-4 rounded-xl border-2 transition-all duration-200 flex flex-col items-center justify-start gap-2 h-32 ${
                                             cameraComposition === 'recompose'
-                                                ? 'bg-theme-accent/10 border-theme-accent text-theme-accent ring-1 ring-theme-accent'
-                                                : 'bg-theme-bg/80 border-theme-gray-light hover:border-theme-accent/50'
+                                                ? 'bg-theme-accent/10 border-theme-accent text-theme-accent ring-2 ring-theme-accent'
+                                                : 'bg-theme-bg/80 border-theme-gray-light hover:border-theme-accent/50 hover:shadow-soft'
                                         }`}
                                     >
-                                        새로운 구도 제안
+                                        <SparklesIcon className="w-6 h-6 mb-1 flex-shrink-0" />
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-sm">새로운 구도 제안</span>
+                                            <span className="text-xs text-theme-gray-dark mt-1">
+                                                AI가 더 매력적인 앵글을 자유롭게 제안합니다.
+                                            </span>
+                                        </div>
                                     </button>
                                 </div>
                             </div>
