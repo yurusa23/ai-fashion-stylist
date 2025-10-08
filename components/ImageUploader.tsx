@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useCallback, ChangeEvent, useId, useState, DragEvent, KeyboardEvent, ClipboardEvent, useEffect, useRef } from 'react';
 import { UploadedImageInfo, Base64String } from '../types';
 import { UploadIcon, CloseIcon } from './icons';
@@ -69,7 +71,10 @@ const workerCode = `
       const base64 = await fileToBase64(resizedFile);
       self.postMessage({ success: true, base64, mimeType: resizedFile.type });
     } catch (error) {
-      self.postMessage({ success: false, error: error.message });
+      // FIX: The 'error' object in a catch block is of type 'unknown'. We must check if it's an
+      // Error instance before accessing properties like 'message' to avoid runtime errors.
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      self.postMessage({ success: false, error: errorMessage });
     }
   };
 `;

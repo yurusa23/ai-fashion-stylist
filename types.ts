@@ -35,6 +35,16 @@ export interface GeneralSuggestions {
   '포즈': string[];
 }
 
+// Represents an individual person being styled.
+export interface Person {
+  id: 1 | 2;
+  images: UploadedImageInfo[];
+  bodyShape: string;
+  height: string;
+  ageRange: string;
+  personalStyle: string;
+}
+
 
 // This is the existing type for general ideas (fetchStyleIdeas) and reference analysis (analyzeStyleFromImage)
 export interface StyleIdeas {

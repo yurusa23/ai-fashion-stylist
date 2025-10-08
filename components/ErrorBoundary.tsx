@@ -10,20 +10,25 @@ interface State {
 }
 
 class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-  };
+  // FIX: Replaced the state class property with a standard constructor.
+  // Calling `super(props)` is essential for initializing `this.props` in a React class component.
+  // This change ensures the component behaves correctly and resolves errors where
+  // `this.props` or `this.state` were not being recognized by the type system.
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
-  public static getDerivedStateFromError(_: Error): State {
+  static getDerivedStateFromError(_: Error): State {
     // Update state so the next render will show the fallback UI.
     return { hasError: true };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     logError(error, { componentStack: errorInfo.componentStack });
   }
 
-  public render() {
+  render() {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-theme-bg text-theme-text p-4">

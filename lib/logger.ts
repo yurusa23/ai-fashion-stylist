@@ -18,11 +18,11 @@ export function logEvent(eventName: string, params?: Record<string, unknown>): v
  * @param error The error object.
  * @param context Additional context about where the error occurred.
  */
-export function logError(error: Error, context?: Record<string, unknown>): void {
+export function logError(error: unknown, context?: Record<string, unknown>): void {
+  // Directly log the error object to leverage the browser's inspection capabilities.
+  // This avoids stringification issues like '[object Object]'.
   console.error('[ERROR LOG]', {
-    message: error.message,
-    name: error.name,
-    stack: error.stack,
+    error,
     context: context ?? {},
   });
   // Example integration:
