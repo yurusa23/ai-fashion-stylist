@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "npm install",
     "dev": "vite",
+    "prebuild": "npm install",
     "build": "vite build",
     "preview": "vite preview"
   },
